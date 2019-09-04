@@ -1,16 +1,4 @@
 ## Advanced Lane Finding
-[![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)](http://www.udacity.com/drive)
-
-
-In this project, your goal is to write a software pipeline to identify the lane boundaries in a video, but the main output or product we want you to create is a detailed writeup of the project.  Check out the [writeup template](https://github.com/udacity/CarND-Advanced-Lane-Lines/blob/master/writeup_template.md) for this project and use it as a starting point for creating your own writeup.  
-
-Creating a great writeup:
----
-A great writeup should include the rubric points as well as your description of how you addressed each point.  You should include a detailed description of the code used in each step (with line-number references and code snippets where necessary), and links to other supporting documents or external references.  You should include images in your writeup to demonstrate how your code works with examples.  
-
-All that said, please be concise!  We're not looking for you to write a book here, just a brief description of how you passed each rubric point, and references to the relevant code :). 
-
-You're not required to use markdown for your writeup.  If you use another method please just submit a pdf of your writeup.
 
 The Project
 ---
@@ -26,14 +14,86 @@ The goals / steps of this project are the following:
 * Warp the detected lane boundaries back onto the original image.
 * Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position.
 
-The images for camera calibration are stored in the folder called `camera_cal`.  The images in `test_images` are for testing your pipeline on single frames.  If you want to extract more test images from the videos, you can simply use an image writing method like `cv2.imwrite()`, i.e., you can read the video in frame by frame as usual, and for frames you want to save for later you can write to an image file.  
+###Rubric Points
 
-To help the reviewer examine your work, please save examples of the output from each stage of your pipeline in the folder called `output_images`, and include a description in your writeup for the project of what each image shows.    The video called `project_video.mp4` is the video your pipeline should work well on.  
+A class called **LaneFinding** is created to store the needed information between the subsequent frames. The camera calibration matrix calculation, perspective transformation matrix information and inverse transformation matrix are calculated at the **__init__** of the class. The method **process_image** takes an image and returns an image with overlayed lane and the curvature, car position calculated.
 
-The `challenge_video.mp4` video is an extra (and optional) challenge for you if you want to test your pipeline under somewhat trickier conditions.  The `harder_challenge.mp4` video is another optional challenge and is brutal!
+1) **Camera Calibration:** 
+The method **calibrateCamera** calculates the camera matrix and the distortion coefficients for the given chessboard images using cv2.calibrateCamera() method. The undistortion is done by the method **undistortImage** which makes use of camera matrix, the distortion coefficient and the cv2.undistort method. The undistorted camera calibration images are saved under **output_images/camera_cal** folder.
 
-If you're feeling ambitious (again, totally optional though), don't stop there!  We encourage you to go out and take video of your own, calibrate your camera and show us how you would implement this project from scratch!
+2) **Distortion Correction **
+The distortion correction is applied to test images using the **undistortImage** method. The undistorted test images can be found under the **output_images/undistorted_images** folder.
 
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
+3) **Binary Image Creation**
+A fixed kernel size of 3 is used for all binary image calculations. The following are applied as follows:
+   a) Sobel x gradient with thresh=(20, 100)
+   b) Sobel y gradient with thresh=(40, 100)
+   c) Magnitude threshold with mag_thresh=(50, 100)
+   d) Direction threshold with thresh=(0.7, 1.3)
+   e) Saturation threshold in HLS colorspace with s_thresh=(150, 255)
+   
+The binary images are created with the below combination:
+**combined[((gradx == 1) & (grady == 1)) | ((mag_binary == 1) & (dir_binary == 1)) | ((s_binary == 1))] = 1**
+The binary test images can be found under **output_images/binary_images** folder.
 
+4) **Perspective Transform**
+The method **calculatePerspectiveTransform** calculates the transformation matrix. The source and destination mapping is done as follows:
+
+src = np.float32([[600, 445], [680, 445], [1060, 679], [248, 679]])
+dst = np.float32([[200, 0], [930, 0], [930, 719], [200, 719]])
+
+Kindly note that assymmetric rectangle used in prespective transformation
+
+The perspective transformation is then applied to the test images and the output can be found under **output_images/perspective_transform** folder.
+
+5) **Lane pixel Detection**
+After applying the perspective transform, the lane pixels are detected as follows:
+
+a) Take the histogram of the bottom half of the image. Find the peaks in the left and right half of the image
+
+b) For the **first image** fit the polynomial coefficients around the left and right peaks using **sliding window** approach. This is done by the method **fit_polynomial_sliding_window**. The hyperparameters used are as below:
+    # HYPERPARAMETERS
+    # Choose the number of sliding windows
+    nwindows = 9
+    # Set the width of the windows +/- margin
+    margin = 100
+    # Set minimum number of pixels found to recenter window
+    minpix = 50
+    
+c) For the **next images**, search around the region of previous frame polynomial area. This is done by the method **search_around_poly**. The region margin used is 50 pixels. An example image with lane area detected can be found under the folder **output_images/lane_curve_detected_images"
+
+d) The next step is to do sanity check on the obtained left and right polynomials. It is done by the method **doLaneSanityCheck**. The sanity check basically checks for the minimum and maximum pixel distance checks for the pixel line at the bottom of the image and pixel line at the top of the image. 
+
+    # Do some validity checks for bottom distance
+    if( (600 > bottomDistanceInPixels.astype('int')) | (bottomDistanceInPixels.astype('int') > 1100)):
+        valid = False
+        
+    # Do some validity checks for top distance
+    if( (500 > topDistanceInPixels.astype('int')) | (topDistanceInPixels.astype('int') > 1200)):
+        valid = False
+        
+    # If the difference distance between bottom and top line is more than 400 pixels, then it is invalid
+    if(diffDistanceInPixels.astype('int') > 400):
+        valid = False
+
+
+
+Only if the sanity check is passed, store the polynomial parameters. If not valid, calculate once again using **sliding window** approach.
+
+An example image with lane area detected can be found under the folder **output_images/lane_curve_detected_images"
+
+6) **Lane Curvature Measurement and Position of car**
+The method **measureCurvatureReal** calculates the right and left curvature of the lane in meters. The forward lookahead distance is considered to be 50 meters. The curvature is calculated using the radius of curvature formula scaled to metres at 50% of the y_max (ie., at y=360).
+
+The position of car is calculated by the method **findPositionOfCar**. Horizontal distance in pixels is first calculated at y_max and the width of the image is considered as 1130 pixels to account for assymmetric perspective used. The distance is later converted to metres and then position of the car from centre of the image is shown.
+
+7) **Reverse Transformation of Lane**
+The lane identified on the warped image is then inverse transformed by the method **doReverseTransform**. Note that different src points are used to find the inverse transformation matrix so that lanes are extended upon the car bonnet.
+The final output image can be found at **output_images/final_output_image.JPG**
+
+##PipeLine Video
+
+The above steps are applied to the video "project_video.mp4". The output can be found at **project_video_output.mp4**.
+
+##Discussion
+Currently it can be seen at some frames, the lane extends to the guard rails on the left especially during the changes in the brightness of the lane. The above solution can be further improved to do better whenever there is change in brightness of the lane.
